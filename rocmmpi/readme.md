@@ -12,6 +12,7 @@ The following dependencies must be satisfied:
 ## Build
 
 $ cmake CMakeLists.txt
+
 $ make
 
 Note:
