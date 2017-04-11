@@ -47,7 +47,12 @@ struct _params {
     bool                    verbose;
     long                    rank0_agent;
     long                    rank_agent;
+    char                    mpi_datatype[128];
 };
+
+
+MPI_Datatype datatype = MPI_INT;
+int          datatype_size = sizeof(int);
 
 
 struct _params params = {
@@ -56,6 +61,7 @@ struct _params params = {
     .verbose        = false,
     .rank0_agent    = -1,
     .rank_agent     = -1,
+    .mpi_datatype   = "MPI_INT",
 };
 
 static void  *alloc_memory(size_t _size, int world_rank) 
@@ -64,6 +70,9 @@ static void  *alloc_memory(size_t _size, int world_rank)
 
     int  gpu_index     = 0;
 
+    size_t real_size = _size * datatype_size;
+
+
     if (world_rank == 0)
         gpu_index = (int) params.rank0_agent;
     else
@@ -71,14 +80,14 @@ static void  *alloc_memory(size_t _size, int world_rank)
 
     switch (gpu_index) {
         case -1:    // System memory
-            p = malloc(_size);
+            p = malloc(real_size);
             break;
         case 0:
-            p = roctb_alloc_memory_host(_size);
+            p = roctb_alloc_memory_host(real_size);
             break;
         default:
             if (gpu_index > 0)
-                p = roctb_alloc_memory_device(_size, gpu_index-1);
+                p = roctb_alloc_memory_device(real_size, gpu_index-1);
             else {
                 fprintf(stderr, "Invalid GPU Index: %d", gpu_index);
                 exit(EXIT_FAILURE);
@@ -93,7 +102,7 @@ static void  *alloc_memory(size_t _size, int world_rank)
 
     //  We assume that we are dealing only with large-BAR systems. 
     //  It means that memory is CPU accessible 
-    memset(p, 0, _size);
+    memset(p, 0, real_size);
 
     if (params.verbose)
         printf("ROCMMPI: rank %d: Allocated buffer address: %p\n", world_rank, p);
@@ -120,12 +129,33 @@ static void free_memory(void *p, int world_rank)
     }
 }
 
+void str2mpi_datatype(const char *name, MPI_Datatype *_datatype, int * _sizeof) 
+{
+
+   if (strcmp(name, "MPI_CHAR") == 0) {
+        *_datatype = MPI_CHAR;
+        *_sizeof   = sizeof(signed char);
+   } else if (strcmp(name, "MPI_INT") == 0) {
+        *_datatype = MPI_INT;
+        *_sizeof   = sizeof(int);
+   } else if (strcmp(name, "MPI_SHORT") == 0) {
+	*_datatype = MPI_SHORT;
+        *_sizeof   = sizeof(short int);
+   }
+   else {
+       fprintf(stderr, "Not supported MPI Datatype: %s\n", name);
+       exit(EXIT_FAILURE);
+   }
+}
+
 static void usage(const char *argv0)
 {
     printf("Options:\n");
     printf("  -s, --size=<size[K|M]>  Size of memory to allocate (default 4096)\n");
     printf("                K - size in KB\n");
     printf("                M - size in MB\n");
+    printf("  -d, --datatype=<MPI data type> MPI datatype: MPI_CHAR, MPI_SHORT\n");
+    printf("                 |MPI_INT|MPI_LONG.  (default: MPI_INT\n");
     printf("  -p, --pattern=<uint8_t> Specify pattern to fill memory to validate\n");
     printf("                          result. (default: 0x55)\n");
     printf("  -0, --rank0=<agent_index> Allocate HSA memory for agent\n");
@@ -150,10 +180,11 @@ int main(int argc, char** argv)
             { .name = "rank",       .has_arg = 1, .val = 'r'},
             { .name=  "pattern",    .has_arg = 1, .val = 'p'},
             { .name = "verbose",    .has_arg = 0, .val = 'v'},
+            { .name = "datatype",   .has_arg = 1, .val = 'd'},
             { 0 }
         };
 
-        c = getopt_long(argc, argv, "s:0:r:p:v", long_options, NULL);
+        c = getopt_long(argc, argv, "s:0:r:p:d:v", long_options, NULL);
 
         if (c == -1)
             break;
@@ -194,7 +225,11 @@ int main(int argc, char** argv)
             }
             break;
 
-            case 'v':
+            case 'd':
+		strncpy(params.mpi_datatype, optarg, 26);
+		break;
+
+	    case 'v':
                 params.verbose = true;
                 break;
 
@@ -205,6 +240,12 @@ int main(int argc, char** argv)
         }
     }
 
+    str2mpi_datatype(params.mpi_datatype, &datatype, &datatype_size);
+
+    if (params.verbose)
+	printf("ROCMMPI: MPI Datatype to be used: %s\n", params.mpi_datatype);
+
+
     if (roctb_init(0)) {
         fprintf(stderr, "Failure to initialize ROCm subsystem\n");
         exit(EXIT_FAILURE);
@@ -213,10 +254,13 @@ int main(int argc, char** argv)
     // Initialize the MPI environment
     MPI_Init(NULL, NULL);
     // Find out rank, size
-    int world_rank;
+    int world_rank = -1;
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-    int world_size;
+    int world_size = -1;
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+    if (params.verbose)
+        printf("ROCMMPI: rank %d from %d\n", world_rank, world_size);
 
     if (params.verbose) {
         printf("ROCMMPI: rank %d: Allocate 0x%llx bytes. Pattern 0x%02X\n",
@@ -246,12 +290,16 @@ int main(int argc, char** argv)
 
         memset(buf, params.pattern, params.buffer_size);
 
-        int rank_count = 0;
+        int rank_count;
         for (rank_count = 1; rank_count < world_size; rank_count++) {
-            MPI_Send(buf, params.buffer_size, MPI_CHAR, rank_count, 0, MPI_COMM_WORLD);
+	    if (params.verbose)
+		printf("ROCMMPI: Rank 0 send to %d\n", rank_count);
+            MPI_Send(buf, params.buffer_size, datatype, rank_count, 0, MPI_COMM_WORLD);
         }
     } else {
-        MPI_Recv(buf, params.buffer_size, MPI_CHAR, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+	if (params.verbose)
+		printf("ROCMMPI: Rank %d receive from rank 0\n", world_rank);
+        MPI_Recv(buf, params.buffer_size, datatype, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
         if (params.verbose)
             printf("ROCMMPI: rank %d: received 0x%x\n", world_rank, (int) buf[0]);
