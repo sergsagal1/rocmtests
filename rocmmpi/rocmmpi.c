@@ -151,7 +151,7 @@ void str2mpi_datatype(const char *name, MPI_Datatype *_datatype, int * _sizeof)
 static void usage(const char *argv0)
 {
     printf("Options:\n");
-    printf("  -s, --size=<size[K|M]>  Size of memory to allocate (default 4096)\n");
+    printf("  -s, --size=<size[K|M]>  Number of elements to allocate (default 4096)\n");
     printf("                K - size in KB\n");
     printf("                M - size in MB\n");
     printf("  -d, --datatype=<MPI data type> MPI datatype: MPI_CHAR, MPI_SHORT\n");

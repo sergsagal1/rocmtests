@@ -24,13 +24,15 @@ cmake must find the correct MPI in the path (PATH and LD).
 
 Example of command line:
 
-$ mpirun -np 3 -host localhost,localhost,localhost -mca pml ucx -x UCX_TLS=mm,rocmcma ./rocmmpi -v -s 1M -0 0 -r 1
+$ mpirun -np 3 -host localhost,localhost,localhost -mca pml ucx -x UCX_TLS=mm,rocm ./rocmmpi -v -s 1M -0 0 -r 1
 
 
 ## Command line options
 
 - -s or --size=<size[K|M]>  
-    Size of memory to allocate (default 4096). Where  K - size in KB, M - size in MB
+    Number of elements to allocate (default 4096). Where  K - size in KB, M - size in MB
+- -d or --datatype=<MPI data type> MPI datatype: MPI_CHAR, MPI_SHORT
+    |MPI_INT|MPI_LONG.  (default: MPI_INT
 - -p, --pattern=<uint8_t>  
     Specify pattern to fill memory to validate transfer
 - -0, --rank0=<agent_index>  
