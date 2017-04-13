@@ -197,11 +197,14 @@ int main(int argc, char** argv)
                 if (optarg[size_len-1] == 'K') {
                     optarg[size_len-1] = '\0';
                     size_factor = 1024;
-                }
-                if (optarg[size_len-1] == 'M') {
+                } else  if (optarg[size_len-1] == 'M') {
                     optarg[size_len-1] = '\0';
                     size_factor = 1024*1024;
+                } else if (!isdigit(optarg[size_len-1])) {
+                   fprintf(stderr, "Invalid size modifier: %c\n", optarg[size_len-1]);
+                   exit(EXIT_FAILURE);
                 }
+
                 params.buffer_size = strtoull(optarg, NULL, 0) * size_factor;
                 if (params.buffer_size < 1 || params.buffer_size > (UINT_MAX / 2)) {
                     fprintf(stderr," Size should be between %d and %d\n",1,UINT_MAX/2);
@@ -226,13 +229,12 @@ int main(int argc, char** argv)
             break;
 
             case 'd':
-		strncpy(params.mpi_datatype, optarg, 26);
-		break;
-
-	    case 'v':
-                params.verbose = true;
+                strncpy(params.mpi_datatype, optarg, 26);
                 break;
 
+            case 'v':
+                params.verbose = true;
+                break;
 
             default:
                 usage(argv[0]);
@@ -264,7 +266,7 @@ int main(int argc, char** argv)
 
     if (params.verbose) {
         printf("ROCMMPI: rank %d: Allocate 0x%llx bytes. Pattern 0x%02X\n",
-               world_rank,  params.buffer_size, params.pattern);
+               world_rank,  params.buffer_size * datatype_size, params.pattern);
 
         if ( (world_rank == 0 ? params.rank0_agent : params.rank_agent) == -1)
             printf("ROCMMPI: rank %d: Allocate system memory\n", world_rank);
